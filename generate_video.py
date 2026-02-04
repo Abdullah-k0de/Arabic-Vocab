@@ -9,14 +9,20 @@ from bidi.algorithm import get_display
 import arabic_reshaper
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
+import re
 
 # Configuration
-CSV_FILE = '3_words_utf.csv'
+CSV_FILE = 'datasets/3_words_utf.csv'
 OUTPUT_VIDEO = 'vocab_output.mp4'
 
 # Voice Configuration (Male Voices)
-VOICE_AR = "ar-EG-ShakirNeural" # Arabic Male
+VOICE_AR = "ar-MA-JamalNeural" # Arabic Male (Morocco - Standard Jeem)
 VOICE_EN = "en-US-ChristopherNeural" # English Male
+
+# Pause Configuration (Seconds)
+PAUSE_AR_WORD = 1.0       # Pause between Arabic parts (separated by \)
+PAUSE_EN_WORD = 0.5       # Pause between English parts (separated by , or ;)
+PAUSE_BETWEEN_LANGS = 1.5 # Pause between Arabic block and English block
 
 # Font setup
 font_candidates = [
@@ -122,9 +128,55 @@ def create_text_image(arabic_text, english_text, background_img, size=VIDEO_SIZE
     
     return np.array(img)
 
-async def generate_audio(text, voice, output_file):
+async def generate_single_audio_file(text, voice, output_path):
+    """Generates a single TTS file using EdgeTTS."""
     communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(output_file)
+    await communicate.save(output_path)
+
+async def create_segmented_audio(full_text, voice, separators, pause_duration, row_index, lang_prefix):
+    """
+    Splits text by separators, generates audio for each part, 
+    and returns a concatenated AudioFileClip with updated pauses.
+    """
+    # Create temp dir
+    temp_dir = f"temp_audio/{row_index}_{lang_prefix}"
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+
+    # Split text (regex split by separators, keeping only non-empty parts)
+    # separators is a string of chars e.g. r"\\|/" or r",|;"
+    parts = re.split(separators, full_text)
+    # Clean parts
+    parts = [p.strip() for p in parts if p.strip()]
+    
+    audio_clips = []
+    
+    # Silence clip
+    silence_samples = int(pause_duration * 44100)
+    # Ensure at least 1 sample to avoid errors if pause is 0
+    if silence_samples == 0: silence_samples = 1
+    silence_array = np.zeros((silence_samples, 2))
+    silence_clip = AudioArrayClip(silence_array, fps=44100)
+    
+    for i, part in enumerate(parts):
+        print(f"    Generating part {i+1}/{len(parts)}: '{part}'")
+        output_path = f"{temp_dir}/part_{i}.mp3"
+        
+        try:
+            await generate_single_audio_file(part, voice, output_path)
+            clip = AudioFileClip(output_path)
+            audio_clips.append(clip)
+            
+            # Add pause if not last item
+            if i < len(parts) - 1:
+                audio_clips.append(silence_clip)
+        except Exception as e:
+            print(f"    Error generating audio for part '{part}': {e}")
+            
+    if not audio_clips:
+        return None
+        
+    return concatenate_audioclips(audio_clips)
 
 async def main():
     if not os.path.exists(CSV_FILE):
@@ -157,37 +209,39 @@ async def main():
             img_array = create_text_image(arabic_word, english_meaning, bg_img)
             image_clip = ImageClip(img_array)
             
-            # 2. Generate Audio (Async)
-            # Clean text for speech (remove slashes, replace with natural pauses)
-            speech_text_ar = arabic_word.replace('\\', ' , ')
+            # 2. Generate Audio (Segmented)
             
-            ar_audio_path = f"temp_audio/ar_{index}.mp3"
-            en_audio_path = f"temp_audio/en_{index}.mp3"
+            # Arabic: Split by backslash or forward slash
+            ar_split_pattern = r"\\|/" 
+            ar_audio = await create_segmented_audio(
+                arabic_word, VOICE_AR, ar_split_pattern, PAUSE_AR_WORD, index, "ar"
+            )
             
-            await generate_audio(speech_text_ar, VOICE_AR, ar_audio_path)
-            await generate_audio(english_meaning, VOICE_EN, en_audio_path)
+            # English: Split by comma or semicolon
+            en_split_pattern = r",|;"
+            en_audio = await create_segmented_audio(
+                english_meaning, VOICE_EN, en_split_pattern, PAUSE_EN_WORD, index, "en"
+            )
             
-            ar_audio = AudioFileClip(ar_audio_path)
-            en_audio = AudioFileClip(en_audio_path)
+            if not ar_audio or not en_audio:
+                print(f"Skipping row {index} due to audio failure")
+                continue
+
+            # 3. Sequencing: Ar_Composite -> Long Pause -> En_Composite -> Long Pause
             
-            # 3. Sequencing: Ar -> Pause -> En -> Pause
-            # Pause is silence
-            pause_duration = 0.5
-            samples = int(pause_duration * 44100)
-            silence_array = np.zeros((samples, 2))
-            silence = AudioArrayClip(silence_array, fps=44100)
+            # Pause between languages
+            lang_pause_samples = int(PAUSE_BETWEEN_LANGS * 44100)
+            if lang_pause_samples == 0: lang_pause_samples = 1
+            lang_pause = AudioArrayClip(np.zeros((lang_pause_samples, 2)), fps=44100)
 
             # Composite Audio
-            combined_audio = concatenate_audioclips([ar_audio, silence, en_audio, silence])
+            combined_audio = concatenate_audioclips([ar_audio, lang_pause, en_audio, lang_pause])
             
             # Set video clip duration
             video_clip = image_clip.with_duration(combined_audio.duration)
             video_clip = video_clip.with_audio(combined_audio)
             
-            # Add Fade Transition (Crossfade in effect)
-            # FadeIn makes it fade from black color to image. 
-            # Ideally verify if we want crossfade between clips. Concatenate supports method="compose".
-            # For simplicity, we can just add a fadein to each clip.
+            # Add Fade Transition
             video_clip = video_clip.with_effects([vfx.FadeIn(0.75)])
             
             clips.append(video_clip)
@@ -202,14 +256,7 @@ async def main():
         return
 
     # Concatenate all clips
-    # compose method allows for overlapping transitions if we set start times, but straightforward concat does not.
-    # To have actual crossfades, we need CompositeVideoClip.
-    # Simple approach: padding + crossfadein?
-    # Actually, moviepy's concatenate_videoclips doesn't do crossfades easily without method='compose'.
-    # Let's try method='compose' but it can be slow/memory intensive for many clips.
-    # Better: just use the FadeIn we applied. It will fade from black for each word.
-    
-    final_video = concatenate_videoclips(clips, method="compose") # Compose allows audio to mix if needed, but mainly ensures smoother join if we had overlap.
+    final_video = concatenate_videoclips(clips, method="compose") 
     
     # Write output
     final_video.write_videofile(OUTPUT_VIDEO, fps=24)
