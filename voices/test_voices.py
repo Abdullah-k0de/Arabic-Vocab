@@ -1,6 +1,7 @@
 import asyncio
 import edge_tts
 import os
+import shutil
 from moviepy import *
 import numpy as np
 
@@ -84,6 +85,11 @@ async def main():
         print(f"Done! Saved to {OUTPUT_FILE}")
     else:
         print("No clips generated.")
+
+    # Cleanup temp_voices
+    if os.path.exists('temp_voices'):
+        print("Cleaning up temporary voice files...")
+        shutil.rmtree('temp_voices')
 
 if __name__ == "__main__":
     asyncio.run(main())
