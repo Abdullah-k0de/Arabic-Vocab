@@ -1,6 +1,7 @@
 import pandas as pd
-from gtts import gTTS
 import os
+import asyncio
+import edge_tts
 from moviepy import *
 from bidi.algorithm import get_display
 import arabic_reshaper
@@ -10,7 +11,12 @@ import numpy as np
 # Configuration
 CSV_FILE = '3_words_utf.csv'
 OUTPUT_VIDEO = 'vocab_output.mp4'
-# Try to find a good Arabic font. 
+
+# Voice Configuration (Male Voices)
+VOICE_AR = "ar-EG-ShakirNeural" # Arabic Male
+VOICE_EN = "en-US-ChristopherNeural" # English Male
+
+# Font setup
 font_candidates = [
     'C:\\Windows\\Fonts\\arial.ttf',
     'C:\\Windows\\Fonts\\segoeui.ttf',
@@ -72,7 +78,11 @@ def create_text_image(arabic_text, english_text, size=VIDEO_SIZE):
     
     return np.array(img)
 
-def generate_video():
+async def generate_audio(text, voice, output_file):
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(output_file)
+
+async def main():
     if not os.path.exists(CSV_FILE):
         print(f"Error: CSV file '{CSV_FILE}' not found.")
         return
@@ -100,30 +110,27 @@ def generate_video():
             img_array = create_text_image(arabic_word, english_meaning)
             image_clip = ImageClip(img_array)
             
-            # 2. Generate Audio
-            # Arabic Audio
-            tts_ar = gTTS(arabic_word, lang='ar')
-            ar_audio_path = f"temp_audio/ar_{index}.mp3"
-            tts_ar.save(ar_audio_path)
-            ar_audio = AudioFileClip(ar_audio_path)
+            # 2. Generate Audio (Async)
+            # Clean text for speech (remove slashes, replace with natural pauses)
+            speech_text_ar = arabic_word.replace('\\', ' , ')
             
-            # English Audio
-            tts_en = gTTS(english_meaning, lang='en')
+            ar_audio_path = f"temp_audio/ar_{index}.mp3"
             en_audio_path = f"temp_audio/en_{index}.mp3"
-            tts_en.save(en_audio_path)
+            
+            await generate_audio(speech_text_ar, VOICE_AR, ar_audio_path)
+            await generate_audio(english_meaning, VOICE_EN, en_audio_path)
+            
+            ar_audio = AudioFileClip(ar_audio_path)
             en_audio = AudioFileClip(en_audio_path)
             
             # 3. Sequencing: Ar -> Pause -> En -> Pause
             # Pause is silence
             pause_duration = 0.5
-            # Silence using AudioArrayClip
             samples = int(pause_duration * 44100)
             silence_array = np.zeros((samples, 2))
             silence = AudioArrayClip(silence_array, fps=44100)
 
-            
             # Composite Audio
-            # Note: concatenate_audioclips might be strictly typed in v2, check if list is fine.
             combined_audio = concatenate_audioclips([ar_audio, silence, en_audio, silence])
             
             # Set video clip duration to match audio (UPDATED FOR MOVIEPY V2)
@@ -133,7 +140,6 @@ def generate_video():
             clips.append(video_clip)
         except Exception as e:
             print(f"Error processing row {index}: {e}")
-            # print stack trace for debugging
             import traceback
             traceback.print_exc()
             continue
@@ -150,4 +156,4 @@ def generate_video():
     print(f"Video saved to {OUTPUT_VIDEO}")
 
 if __name__ == "__main__":
-    generate_video()
+    asyncio.run(main())
