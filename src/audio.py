@@ -4,12 +4,12 @@ import edge_tts
 import numpy as np
 from moviepy import AudioArrayClip, AudioFileClip, concatenate_audioclips
 
-async def generate_single_audio_file(text, voice, output_path):
+async def generate_single_audio_file(text, voice, output_path, rate="+0%"):
     """Generates a single TTS file using EdgeTTS."""
-    communicate = edge_tts.Communicate(text, voice)
+    communicate = edge_tts.Communicate(text, voice, rate=rate)
     await communicate.save(output_path)
 
-async def create_segmented_audio(full_text, voice, separators, pause_duration, row_index, lang_prefix):
+async def create_segmented_audio(full_text, voice, separators, pause_duration, row_index, lang_prefix, rate="+0%"):
     """
     Splits text by separators, generates audio for each part, 
     and returns a concatenated AudioFileClip with updated pauses.
@@ -39,7 +39,7 @@ async def create_segmented_audio(full_text, voice, separators, pause_duration, r
         output_path = f"{temp_dir}/part_{i}.mp3"
         
         try:
-            await generate_single_audio_file(part, voice, output_path)
+            await generate_single_audio_file(part, voice, output_path, rate=rate)
             clip = AudioFileClip(output_path)
             audio_clips.append(clip)
             
