@@ -1,8 +1,9 @@
 import os
 
-# Configuration
-CSV_FILE = 'datasets/3_words_utf.csv'
-OUTPUT_VIDEO = 'vocab_output.mp4'
+# Default Configuration
+CSV_FILE = 'datasets/Full.csv'
+OUTPUT_DIR = 'outputs'
+BATCH_SIZE = 100
 
 # Voice Configuration (Male Voices)
 VOICE_AR = "ar-MA-JamalNeural" # Arabic Male (Morocco - Standard Jeem)

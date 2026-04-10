@@ -4,21 +4,18 @@ This project generates educational videos for Arabic vocabulary words using Pyth
 
 ## Features
 
-- **Automated Video Generation**: Converts a CSV list of Arabic and English words into a video.
-- **High-Quality TTS**: Uses Microsoft Edge TTS for natural-sounding Arabic and English voices.
-- **Smart Pause Handling**: Automatically inserts pauses between words and language segments for better learning pacing.
-- **Dynamic Visuals**: Fetches random background images and overlays text with proper Arabic support (reshaping and bidi).
-- **Modular Design**: Code is organized into `src` modules for easier maintenance.
-- **Auto-Cleanup**: Temporary files (`temp_audio`, `temp_voices`) are automatically cleaned up after generation.
+- **Batch Processing**: Split large datasets (e.g., 700+ words) into multiple videos automatically.
+- **Transliteration Support**: Automated phonetic transliteration tool included.
+- **High-Quality TTS**: Triple repetition sequence (Normal -> Slow -> Very Slow) for better learning.
+- **Dynamic Visuals**: English at the top, Arabic in the middle, and Transliteration at the bottom.
+- **CLI Arguments**: Fully customizable input/output paths via the terminal.
 
 ## Prerequisites
 
 - Python 3.8+
-- [ImageMagick](https://imagemagick.org/script/download.php) (Required by MoviePy for some operations, though this project uses PIL for text primarily, having it installed is recommended).
+- [ImageMagick](https://imagemagick.org/script/download.php) (Recommended for MoviePy)
 
 ### Dependencies
-
-Install the required Python packages:
 
 ```bash
 pip install pandas moviepy edge-tts requests python-bidi arabic-reshaper Pillow numpy
@@ -29,45 +26,42 @@ pip install pandas moviepy edge-tts requests python-bidi arabic-reshaper Pillow 
 ```
 Arabic_Vocab/
 ├── datasets/
-│   └── 3_words_utf.csv       # Input data (Arabic, English columns)
+│   ├── Full.csv              # Main dataset (Arabic, English)
+│   └── 3_words_utf.csv       # Small test dataset
 ├── src/
 │   ├── config.py             # Configuration (Voices, Pauses, Fonts)
 │   ├── audio.py              # Audio generation logic
 │   └── graphics.py           # Image and text rendering
-├── voices/
-│   └── test_voices.py        # Utility to test different TTS voices
-├── generate_video.py         # Main script to run
+├── populate_transliteration.py # Tool to add phonetics to your CSV
+├── generate_video.py         # Main batch generator script
 └── README.md
 ```
 
 ## Usage
 
-1.  **Prepare Data**: Ensure your CSV file is at `datasets/3_words_utf.csv` (or update `src/config.py`). It should have columns `Arabic` and `English`.
-2.  **Run the Generator**:
-
-    ```bash
-    python generate_video.py
-    ```
-
-    The script will:
-    - distinct audio segments for each word.
-    - Fetch background images.
-    - Compose the video clips.
-    - Save the final output to `vocab_output.mp4`.
-
-## Testing Voices
-
-To hear samples of different Arabic voices (Saudi, UAE, Kuwait, Morocco, Algeria):
+### 1. Prepare Your Data
+Ensure your CSV file has `Arabic` and `English` columns. If you don't have transliterations yet, run the included tool:
 
 ```bash
-python voices/test_voices.py
+python populate_transliteration.py
+```
+*(Default: updates `datasets/Full.csv`. Modify the script if using a different file.)*
+
+### 2. Run the Batch Generator
+Generate videos in chunks (e.g., 100 words per video):
+
+```bash
+python generate_video.py --input datasets/Full.csv --output-dir outputs --batch-size 100
 ```
 
-This will generate `voice_samples.mp4` showcasing the available voices.
+The script will:
+- Partition the words into batches.
+- Create videos named like `batch_1_words_1_100.mp4`.
+- Sequence each word: **English** -> **Pause** -> **Arabic** -> **Arabic (Slow)** -> **Arabic (Very Slow)**.
 
 ## Configuration
 
-You can customize the following in `src/config.py`:
-- **Voices**: Change `VOICE_AR` or `VOICE_EN` to different Edge TTS voice IDs.
-- **Pauses**: Adjust `PAUSE_AR_WORD`, `PAUSE_EN_WORD`, etc.
-- **Fonts**: Add paths to your preferred fonts in `font_candidates`.
+Customize settings in `src/config.py`:
+- **Triple Repetition**: Adjust `AR_REPETITION_RATE` and `AR_REPETITION_RATE_SLOWEST`.
+- **Layout**: The system uses a 3-line centered layout (English, Arabic, Transliteration).
+- **Voices**: Change `VOICE_AR` or `VOICE_EN` for different accents.
